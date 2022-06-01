@@ -1,0 +1,333 @@
+
+ 
+// Initialize the integer variables
+int servo_0_angle = 90;
+int servo_1_angle = 90;
+int servo_2_angle = 90;
+int servo_3_angle = 90;
+//int servo_4_angle = 90;
+//int servo_5_angle = 90;
+ 
+// Initialize the String variables
+String servo_0_angle_str = "";
+String servo_1_angle_str = "";
+String servo_2_angle_str = "";
+String servo_3_angle_str = "";
+String servo_4_angle_str = "";
+String servo_5_angle_str = "";
+ 
+int sum = 0;
+ 
+// Get ready to accept comma-separated values
+int comma_position;
+
+class SimplePID{
+  private:
+    float kp, kd, ki, umax; // Parameters
+    float eprev, eintegral; // Storage
+
+  public:
+  // Constructor
+  SimplePID() : kp(1), kd(0), ki(0.2), umax(255), eprev(0.0), eintegral(0.0){}
+
+  // A function to set the parameters
+  void setParams(float kpIn, float kdIn, float kiIn, float umaxIn){
+    kp = kpIn; kd = kdIn; ki = kiIn; umax = umaxIn;
+  }
+
+  // A function to compute the control signal
+  void evalu(int value, int target, float deltaT, int &pwr, int &dir){
+    // error
+    int e = target - value;
+  
+    // derivative
+    float dedt = (e-eprev)/(deltaT);
+  
+    // integral
+    eintegral = eintegral + e*deltaT;
+  
+    // control signal
+    float u = kp*e + kd*dedt + ki*eintegral;
+  
+    // motor power
+    pwr = (int) fabs(u);
+    if( pwr > umax ){
+      pwr = umax;
+    }
+  
+    // motor direction
+    dir = 1;
+    if(u<0){
+      dir = -1;
+    }
+  
+    // store previous error
+    eprev = e;
+  }
+  
+};
+
+// How many motors
+#define NMOTORS 4
+
+// Pins
+const int enca[] = {16,27,33,35};//,14};
+const int encb[] = {17,14,32,34};//,27};
+
+const int in1[] = {25,19,13,2};//{12,4,18,25};//,25};
+const int in2[] = {26,18,12,4};//{13,2,19,26};//,26};
+
+
+//pwmchannel
+ int channel[] = {0,2,4,6};
+
+// pwm vars 
+const int freq  = 30000;
+const int resolution = 8;
+
+// Globals
+long prevT = 0;
+int posPrev = 0;
+volatile int posi[] = {0,0,0,0};
+//volatile float velocity_i[] = {0,0,0,0};
+//volatile long prevT_i[] = {0,0,0,0};
+//
+//frontleft 
+const int pwmchannel0 = 0; 
+const int pwmchannel1 = 1; 
+//frontright
+const int pwmchannel2 = 2;
+const int pwmchannel3 = 3;
+//backleft
+const int pwmchannel4 = 4;
+const int pwmchannel5 = 5;
+//backright
+const int pwmchannel6 = 6;
+const int pwmchannel7 = 7;
+//serial motor values
+int motor1 = 0;
+int motor2 = 0;
+int motor3 = 0;
+int motor4 = 0;
+// PID class instances
+SimplePID pid[NMOTORS];
+
+ 
+void setup(){
+   
+  // Set the baud rate  
+  Serial.begin(9600);
+   for(int k = 0; k < NMOTORS; k++){
+    pinMode(enca[k],INPUT);
+    pinMode(encb[k],INPUT);
+//pinMode(pwm[k],OUTPUT);// channel 1 -8 for pwm need pwm direction 1 and direction 2 
+
+    pinMode(in1[k],OUTPUT);
+    pinMode(in2[k],OUTPUT);
+    channel[k];
+  
+//front left
+    ledcSetup(pwmchannel0, freq, resolution); // set up pwm properties change to 4 later
+    ledcSetup(pwmchannel1, freq, resolution); // set up pwm properties change to 4 later
+
+    ledcAttachPin(in1[0], pwmchannel0);  // set to 4 later  attach channel to pin
+    ledcAttachPin(in2[0], pwmchannel1);  // set to 4 later  attach channel to pin
+
+//front right
+    ledcSetup(pwmchannel2, freq, resolution); // set up pwm properties change to 4 later
+    ledcSetup(pwmchannel3, freq, resolution); // set up pwm properties change to 4 later
+
+    ledcAttachPin(in1[1], pwmchannel2);  // set to 4 later  attach channel to pin
+    ledcAttachPin(in2[1], pwmchannel3);  // set to 4 later  attach channel to pin
+//backleft 
+    ledcSetup(pwmchannel4, freq, resolution); // 
+    ledcSetup(pwmchannel5, freq, resolution); // set up pwm properties change to 4 later
+
+    ledcAttachPin(in1[2], pwmchannel4);  // 
+    ledcAttachPin(in2[2], pwmchannel5);  // 
+//backright
+    ledcSetup(pwmchannel6, freq, resolution); // set up pwm properties change to 4 later
+    ledcSetup(pwmchannel7, freq, resolution); // set up pwm properties change to 4 later
+
+    ledcAttachPin(in1[3], pwmchannel6);  // set to 4 later  attach channel to pin
+    ledcAttachPin(in2[3], pwmchannel7);  // set to 4 later  attach channel to pin
+// set pid values for each motor
+
+    pid[0].setParams(1,0,0.025,255);
+    pid[1].setParams(1,0,0.025,255);
+    pid[2].setParams(1,0,0.025,255);
+    pid[3].setParams(1,0,0.025,255);
+  
+  
+    attachInterrupt(digitalPinToInterrupt(enca[0]),readEncoder<0>,RISING);
+    attachInterrupt(digitalPinToInterrupt(enca[1]),readEncoder<1>,RISING);
+    attachInterrupt(digitalPinToInterrupt(enca[2]),readEncoder<2>,RISING);
+    attachInterrupt(digitalPinToInterrupt(enca[3]),readEncoder<3>,RISING);
+  }
+}
+ 
+void loop(){
+      // feed values to motor
+  
+  if(Serial.available() > 0) {
+ 
+    // Read string until the new line character
+    String data = Serial.readStringUntil('\n');
+ 
+    // There are 6 integers we will be receiving from the
+    // Raspberry Pi
+ 
+    // Integer 0
+    comma_position = data.indexOf(',');   
+    servo_0_angle_str = data.substring(0,comma_position);
+    servo_0_angle = servo_0_angle_str.toInt();
+    data = data.substring(comma_position+1, data.length());
+ 
+    // Integer 1
+    comma_position = data.indexOf(',');   
+    servo_1_angle_str = data.substring(0,comma_position);
+    servo_1_angle = servo_1_angle_str.toInt();
+    data = data.substring(comma_position+1, data.length());
+ 
+    // Integer 2
+    comma_position = data.indexOf(',');   
+    servo_2_angle_str = data.substring(0,comma_position);
+    servo_2_angle = servo_2_angle_str.toInt();
+    data = data.substring(comma_position+1, data.length());
+ 
+    // Integer 3
+    comma_position = data.indexOf(',');   
+    servo_3_angle_str = data.substring(0,comma_position);
+    servo_3_angle = servo_3_angle_str.toInt();
+    data = data.substring(comma_position+1, data.length());
+ /*
+    // Integer 4
+    comma_position = data.indexOf(',');   
+    servo_4_angle_str = data.substring(0,comma_position);
+    servo_4_angle = servo_4_angle_str.toInt();
+    data = data.substring(comma_position+1, data.length());
+ 
+    // Integer 5
+    comma_position = data.indexOf(',');   
+    servo_5_angle_str = data.substring(0,comma_position);
+    servo_5_angle = servo_5_angle_str.toInt();
+    data = data.substring(comma_position+1, data.length());
+ 
+    // Compute a sum to prove we have integers
+    //sum = servo_0_angle + servo_1_angle;
+ */ 
+    // We do println to add a new line character '\n' at the end
+    // of the comma-separated stream of integers
+    // The stuff below is ready by the Raspberry Pi
+    Serial.print(servo_0_angle); Serial.print(",");
+    Serial.print(servo_1_angle); Serial.print(",");
+    Serial.print(servo_2_angle); Serial.print(",");
+    Serial.print(servo_3_angle); Serial.print(",");
+
+    // set motor
+    motor1 = servo_0_angle;
+    motor2 = servo_1_angle;
+    motor3 = servo_2_angle;
+    motor4 = servo_3_angle;
+    runMotor(motor1,motor2, motor3, motor4);
+  
+
+  }
+}
+
+// ----functions ---
+void runMotor(int w1, int w2, int w3, int w4){
+   // set target position
+  int target[NMOTORS];
+  target[0] =  w1; //-250*sin(prevT/1e6);//motor1;//80;//-250*sin(prevT/1e6) //j9 
+//  delay(200);
+  target[1] =  w2;//-250*sin(prevT/1e6);//motor2;//8000;//-250*sin(prevT/1e6) //j8 
+  //delay(200)
+  
+  target[2] = w3;// -250*sin(prevT/1e6);//motor3;//8000;//250*sin(prevT/1e6)  //j10  goes fwd bak
+
+  target[3] = w4;//-250*sin(prevT/1e6);//motor4;//8000;//250*sin(prevT/1e6)  //j7  goes fwd bak
+  // reset target to zero after has been through
+  
+    //Serial.print(target[2]);
+    //Serial.print("target ");
+  //  Serial.print(pos[2]);
+   // Serial.print("target ");
+  
+
+
+  // time difference
+  long currT = micros();
+  float deltaT = ((float) (currT - prevT))/( 1.0e6 );
+  prevT = currT;
+  
+  // Read the position
+ int pos[NMOTORS];
+ // disable interrupts temporarily while reading
+ noInterrupts(); 
+
+  for(int k = 0; k < NMOTORS; k++){
+      pos[k] = posi[k];
+     // velocity2 = velocity_i;
+    }
+  interrupts(); // turn interrupts back on
+ //Serial.print(velocity2);
+  
+  // loop through the motors
+  for(int k = 0; k < NMOTORS; k++){
+    int pwr, dir;
+    // evaluate the control signal
+    pid[k].evalu(pos[k],target[k],deltaT,pwr,dir);
+    // signal the motor
+    setMotor(dir,pwr,channel[k],in1[k],in2[k]);  // needs and extra channel for switching direction 
+  }
+
+  for(int k = 0; k < NMOTORS; k++){
+    //Serial.print(target[2]);
+    //Serial.print("target ");
+    //Serial.print(pos[3]);
+   // Serial.print("target ");
+  }
+
+  
+}
+
+// set pwm vals and direction 
+void setMotor(int dir, int pwmVal, int chan ,int in1, int in2){
+  
+ // analogWrite(pwm,pwmVal);
+  if(dir == 1){
+    ledcWrite(chan,pwmVal);
+    digitalWrite(in1,LOW);
+  }
+  else if(dir == -1){
+     ledcWrite(chan + 1 ,pwmVal);
+    digitalWrite(in2,LOW);
+  }
+  else{
+    digitalWrite(in1,LOW);
+    digitalWrite(in2,LOW);
+  }  
+}
+ 
+
+// return counts and diretion
+template <int j>
+void readEncoder(){
+  int b = digitalRead(encb[j]);
+  if(b > 0){
+    posi[j]++;
+  }
+  else{
+    posi[j]--;
+  }
+ // pos_i = pos_i + increment;
+
+  //compute velocity with method 2 
+ // long currT = micros();
+ // float deltaT = ((float)(currT-prevT_i))/1.0e6;
+ // velocity _i = increment/deltaT;
+ // prevT_i = currT;
+}
+
+
